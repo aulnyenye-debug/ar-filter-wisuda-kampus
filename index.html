@@ -32,8 +32,7 @@
       padding: 8px 14px;
       border-radius: 999px;
       font-size: 13px;
-      border: 1px solid rgba(255,255,255,0.2);
-      max-width: 100%;
+      border: 1px solid rgba(255, 255, 255, 0.2);
     }
     .controls {
       pointer-events: auto;
@@ -72,23 +71,14 @@
     #alert-box p { font-size: 14px; color: #e5e7eb; margin-bottom: 14px; word-break: break-word; }
     #btn-retry { background: #ef4444; color: #fff; width: 100%; }
   </style>
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://unpkg.com/three@0.175.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.175.0/examples/jsm/",
-        "mindar-face-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-three.prod.js"
-      }
-    }
-  </script>
 </head>
 <body>
   <div id="ar-container"></div>
 
   <div id="hud">
     <div class="top-bar">
-      <div class="badge" id="status-text">Memulai kamera...</div>
-      <div class="badge" id="filter-name">Filter: -</div>
+      <div class="badge" id="status-text">Menyiapkan kamera...</div>
+      <div class="badge" id="filter-name">Filter: Topi Toga Kampus</div>
     </div>
 
     <div class="controls">
@@ -98,15 +88,15 @@
   </div>
 
   <div id="alert-box">
-    <h3>Terjadi Kendala</h3>
+    <h3>Kamera Tidak Dapat Diakses</h3>
     <p id="alert-message"></p>
     <button id="btn-retry" type="button">Coba Lagi</button>
   </div>
 
   <script type="module">
-    import * as THREE from 'three';
-    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-    import { MindARThree } from 'mindar-face-three';
+    import * as THREE from 'https://esm.sh/three@0.175.0';
+    import { GLTFLoader } from 'https://esm.sh/three@0.175.0/examples/jsm/loaders/GLTFLoader.js';
+    import { MindARThree } from 'https://esm.sh/mind-ar@1.2.5/face-three?deps=three@0.175.0';
 
     const statusEl = document.getElementById('status-text');
     const filterNameEl = document.getElementById('filter-name');
@@ -116,8 +106,26 @@
     const btnPhoto = document.getElementById('btn-photo');
     const btnRetry = document.getElementById('btn-retry');
 
-    let filters = [];
-    let currentIndex = 0;
+    const FILTERS = [
+      {
+        name: 'Topi Toga Kampus',
+        url: './graduation_cap_pro.glb',
+        anchor: 10,
+        pos: [0, 0.35, 0],
+        scale: [0.45, 0.45, 0.45],
+        spin: true
+      },
+      {
+        name: 'Kacamata Kampus',
+        url: './glasses.glb',
+        anchor: 168,
+        pos: [0, 0.02, 0.05],
+        scale: [0.35, 0.35, 0.35],
+        spin: false
+      }
+    ];
+
+    let currentIdx = 0;
     let activeModel = null;
     let activeMixer = null;
     let currentAnchor = null;
@@ -125,36 +133,37 @@
     const loader = new GLTFLoader();
     const clock = new THREE.Clock();
 
-    function showError(title, msg) {
-      document.querySelector('#alert-box h3').textContent = title;
-      statusEl.textContent = title;
+    function showError(msg) {
+      statusEl.textContent = 'Kamera bermasalah';
       alertMessage.textContent = msg;
       alertBox.style.display = 'block';
     }
 
-    async function attachModelToAnchor(item) {
+    async function setFilter(idx) {
       if (!mindarThree) return;
+      currentIdx = (idx + FILTERS.length) % FILTERS.length;
+      const item = FILTERS[currentIdx];
+
       if (currentAnchor && activeModel) {
         currentAnchor.group.remove(activeModel);
       }
       activeModel = null;
       activeMixer = null;
 
-      currentAnchor = mindarThree.addAnchor(item.anchorIndex ?? 10);
+      currentAnchor = mindarThree.addAnchor(item.anchor);
       filterNameEl.textContent = `Filter: ${item.name}`;
+      statusEl.textContent = 'Memuat model 3D...';
 
       try {
-        const gltf = await loader.loadAsync(item.modelUrl);
+        const gltf = await loader.loadAsync(item.url);
         const model = gltf.scene;
-        model.position.set(...(item.position || [0, 0, 0]));
-        model.rotation.set(...(item.rotation || [0, 0, 0]));
-        model.scale.set(...(item.scale || [0.4, 0.4, 0.4]));
-        model.userData.idleSpin = Boolean(item.idleSpin);
+        model.position.set(...item.pos);
+        model.scale.set(...item.scale);
+        model.userData.spin = item.spin;
 
         if (gltf.animations && gltf.animations.length > 0) {
           activeMixer = new THREE.AnimationMixer(model);
-          const action = activeMixer.clipAction(gltf.animations[0]);
-          action.play();
+          activeMixer.clipAction(gltf.animations[0]).play();
         }
 
         currentAnchor.group.add(model);
@@ -162,71 +171,47 @@
         statusEl.textContent = 'Arahkan wajah ke kamera';
       } catch (err) {
         console.error(err);
-        statusEl.textContent = `Gagal load ${item.modelUrl}`;
+        statusEl.textContent = `Gagal muat ${item.url}`;
       }
     }
 
-    async function initAR() {
-      alertBox.style.display = 'none';
-      statusEl.textContent = 'Membaca filters.json...';
-
+    async function startAR() {
       try {
-        const res = await fetch('./filters.json');
-        if (!res.ok) throw new Error('Gagal mengambil filters.json');
-        filters = await res.json();
-
-        statusEl.textContent = 'Menyiapkan MindAR...';
         mindarThree = new MindARThree({
           container: document.querySelector('#ar-container')
         });
 
         const { renderer, scene, camera } = mindarThree;
-        const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+        scene.add(new THREE.AmbientLight(0xffffff, 1.5));
         const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
         dirLight.position.set(0, 2, 3);
-        scene.add(ambientLight, dirLight);
+        scene.add(dirLight);
 
+        await setFilter(0);
         statusEl.textContent = 'Meminta izin kamera...';
         await mindarThree.start();
         statusEl.textContent = 'Kamera aktif';
 
-        if (filters.length > 0) {
-          await attachModelToAnchor(filters[0]);
-        }
-
         renderer.setAnimationLoop(() => {
           const delta = clock.getDelta();
           if (activeMixer) activeMixer.update(delta);
-
-          if (activeModel && activeModel.userData.idleSpin) {
+          if (activeModel && activeModel.userData.spin) {
             activeModel.rotation.y += delta * 1.1;
           }
-
           renderer.render(scene, camera);
         });
       } catch (err) {
         console.error(err);
-        const detail = err && err.message ? err.message : String(err);
         if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
-          showError(
-            'Izin Kamera Ditolak',
-            'Izin kamera ditolak. Buka pengaturan browser untuk mengizinkan kamera pada situs ini, lalu tekan Coba Lagi.'
-          );
-        } else if (!window.isSecureContext) {
-          showError(
-            'Butuh HTTPS',
-            'Kamera hanya berjalan di konteks aman (HTTPS). Pastikan URL menggunakan https://.'
-          );
+          showError('Izin kamera ditolak. Aktifkan izin kamera di pengaturan browser lalu tekan Coba Lagi.');
         } else {
-          showError('Gagal Memulai AR', `Detail: ${detail}`);
+          showError(`Gagal memulai kamera/AR: ${err && err.message ? err.message : err}`);
         }
       }
     }
 
     btnSwitch.addEventListener('click', () => {
-      if (!filters.length) return;
-      currentIndex = (currentIndex + 1) % filters.length;
-      attachModelToAnchor(filters[currentIndex]);
+      setFilter(currentIdx + 1);
     });
 
     btnPhoto.addEventListener('click', () => {
@@ -237,34 +222,30 @@
 
       const width = glCanvas.width || video.videoWidth || 720;
       const height = glCanvas.height || video.videoHeight || 1280;
-
       const outCanvas = document.createElement('canvas');
       outCanvas.width = width;
       outCanvas.height = height;
       const ctx = outCanvas.getContext('2d');
-
       ctx.drawImage(video, 0, 0, width, height);
       ctx.drawImage(glCanvas, 0, 0, width, height);
 
       outCanvas.toBlob((blob) => {
         if (!blob) return;
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `filter-wisuda-kampus-${Date.now()}.png`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `filter-wisuda-kampus-${Date.now()}.png`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 3000);
         statusEl.textContent = 'Foto tersimpan di perangkat';
       }, 'image/png');
     });
 
-    btnRetry.addEventListener('click', () => {
-      window.location.reload();
-    });
+    btnRetry.addEventListener('click', () => window.location.reload());
 
-    initAR();
+    startAR();
   </script>
 </body>
 </html>
