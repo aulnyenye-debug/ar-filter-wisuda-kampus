@@ -75,11 +75,11 @@
     {
       "imports": {
         "three": "https://esm.sh/three@0.175.0",
-        "three/addons/": "https://esm.sh/three@0.175.0/examples/jsm/",
-        "mindar-face-three": "https://esm.sh/mind-ar@1.2.5/dist/mindar-face-three.prod.js?deps=three@0.175.0"
+        "three/addons/": "https://esm.sh/three@0.175.0/examples/jsm/"
       }
     }
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-three.prod.js"></script>
 </head>
 <body>
   <div id="ar-container"></div>
@@ -105,7 +105,6 @@
   <script type="module">
     import * as THREE from 'three';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-    import { MindARThree } from 'mindar-face-three';
 
     const statusEl = document.getElementById('status-text');
     const filterNameEl = document.getElementById('filter-name');
@@ -186,8 +185,12 @@
 
     async function startAR() {
       try {
-        statusEl.textContent = 'Menyiapkan MindAR...';
-        mindarThree = new MindARThree({
+        const MindARFace = window.MINDAR?.FACE?.MindARThree;
+        if (!MindARFace) {
+          throw new Error('MindARFace tidak tersedia pada window.MINDAR.FACE');
+        }
+
+        mindarThree = new MindARFace({
           container: document.querySelector('#ar-container')
         });
 
