@@ -27,12 +27,13 @@
     }
     .badge {
       pointer-events: auto;
-      background: rgba(0, 0, 0, 0.65);
+      background: rgba(0, 0, 0, 0.72);
       backdrop-filter: blur(6px);
       padding: 8px 14px;
       border-radius: 999px;
       font-size: 13px;
       border: 1px solid rgba(255,255,255,0.2);
+      max-width: 100%;
     }
     .controls {
       pointer-events: auto;
@@ -68,7 +69,7 @@
       line-height: 1.5;
     }
     #alert-box h3 { color: #fca5a5; margin-bottom: 8px; font-size: 17px; }
-    #alert-box p { font-size: 14px; color: #e5e7eb; margin-bottom: 14px; }
+    #alert-box p { font-size: 14px; color: #e5e7eb; margin-bottom: 14px; word-break: break-word; }
     #btn-retry { background: #ef4444; color: #fff; width: 100%; }
   </style>
   <script type="importmap">
@@ -86,7 +87,7 @@
 
   <div id="hud">
     <div class="top-bar">
-      <div class="badge" id="status-text">Memuat filter...</div>
+      <div class="badge" id="status-text">Memulai kamera...</div>
       <div class="badge" id="filter-name">Filter: -</div>
     </div>
 
@@ -97,10 +98,8 @@
   </div>
 
   <div id="alert-box">
-    <h3>Kamera Tidak Dapat Diakses</h3>
-    <p id="alert-message">
-      Izin kamera ditolak atau tidak tersedia. Aktifkan izin kamera pada pengaturan browser lalu muat ulang halaman (pastikan dibuka lewat HTTPS).
-    </p>
+    <h3>Terjadi Kendala</h3>
+    <p id="alert-message"></p>
     <button id="btn-retry" type="button">Coba Lagi</button>
   </div>
 
@@ -126,17 +125,15 @@
     const loader = new GLTFLoader();
     const clock = new THREE.Clock();
 
-    function showCameraError(msg) {
-      statusEl.textContent = 'Kamera diblokir';
+    function showError(title, msg) {
+      document.querySelector('#alert-box h3').textContent = title;
+      statusEl.textContent = title;
       alertMessage.textContent = msg;
       alertBox.style.display = 'block';
     }
 
-    async function loadFilter(index) {
-      if (!filters.length || !mindarThree) return;
-      currentIndex = (index + filters.length) % filters.length;
-      const item = filters[currentIndex];
-
+    async function attachModelToAnchor(item) {
+      if (!mindarThree) return;
       if (currentAnchor && activeModel) {
         currentAnchor.group.remove(activeModel);
       }
@@ -145,7 +142,6 @@
 
       currentAnchor = mindarThree.addAnchor(item.anchorIndex ?? 10);
       filterNameEl.textContent = `Filter: ${item.name}`;
-      statusEl.textContent = 'Memuat model 3D...';
 
       try {
         const gltf = await loader.loadAsync(item.modelUrl);
@@ -166,32 +162,37 @@
         statusEl.textContent = 'Arahkan wajah ke kamera';
       } catch (err) {
         console.error(err);
-        statusEl.textContent = 'Gagal memuat model .glb';
+        statusEl.textContent = `Gagal load ${item.modelUrl}`;
       }
     }
 
     async function initAR() {
       alertBox.style.display = 'none';
-      statusEl.textContent = 'Menyiapkan kamera...';
+      statusEl.textContent = 'Membaca filters.json...';
 
       try {
         const res = await fetch('./filters.json');
+        if (!res.ok) throw new Error('Gagal mengambil filters.json');
         filters = await res.json();
 
+        statusEl.textContent = 'Menyiapkan MindAR...';
         mindarThree = new MindARThree({
           container: document.querySelector('#ar-container')
         });
 
         const { renderer, scene, camera } = mindarThree;
-        const ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
         dirLight.position.set(0, 2, 3);
         scene.add(ambientLight, dirLight);
 
-        await loadFilter(0);
+        statusEl.textContent = 'Meminta izin kamera...';
         await mindarThree.start();
-
         statusEl.textContent = 'Kamera aktif';
+
+        if (filters.length > 0) {
+          await attachModelToAnchor(filters[0]);
+        }
 
         renderer.setAnimationLoop(() => {
           const delta = clock.getDelta();
@@ -205,24 +206,27 @@
         });
       } catch (err) {
         console.error(err);
+        const detail = err && err.message ? err.message : String(err);
         if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
-          showCameraError(
-            'Izin kamera ditolak oleh pengguna. Buka pengaturan situs di browser, izinkan akses kamera, lalu tekan "Coba Lagi".'
+          showError(
+            'Izin Kamera Ditolak',
+            'Izin kamera ditolak. Buka pengaturan browser untuk mengizinkan kamera pada situs ini, lalu tekan Coba Lagi.'
           );
         } else if (!window.isSecureContext) {
-          showCameraError(
-            'Akses kamera membutuhkan koneksi HTTPS yang aman. Pastikan halaman dibuka melalui tautan HTTPS (seperti GitHub Pages).'
+          showError(
+            'Butuh HTTPS',
+            'Kamera hanya berjalan di konteks aman (HTTPS). Pastikan URL menggunakan https://.'
           );
         } else {
-          showCameraError(
-            'Tidak dapat memulai kamera atau AR. Pastikan perangkat memiliki kamera depan dan tidak sedang dipakai aplikasi lain.'
-          );
+          showError('Gagal Memulai AR', `Detail: ${detail}`);
         }
       }
     }
 
     btnSwitch.addEventListener('click', () => {
-      loadFilter(currentIndex + 1);
+      if (!filters.length) return;
+      currentIndex = (currentIndex + 1) % filters.length;
+      attachModelToAnchor(filters[currentIndex]);
     });
 
     btnPhoto.addEventListener('click', () => {
