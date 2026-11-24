@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Filter Wajah Wisuda dan Kampus</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
+    body { overflow: hidden; background: #111; color: #fff; width: 100vw; height: 100vh; }
+    #ar-container { position: fixed; inset: 0; width: 100%; height: 100%; }
+    #hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 16px;
+      z-index: 10;
+    }
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      pointer-events: auto;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(6px);
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    .controls {
+      pointer-events: auto;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 14px;
+      padding-bottom: 12px;
+    }
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 14px 20px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #btn-switch { background: #ffffff; color: #111; }
+    #btn-photo { background: #2563eb; color: #fff; }
+    #alert-box {
+      display: none;
+      pointer-events: auto;
+      position: fixed;
+      inset: 20px;
+      margin: auto;
+      max-width: 420px;
+      height: fit-content;
+      background: #1f2937;
+      border: 1px solid #ef4444;
+      border-radius: 16px;
+      padding: 20px;
+      z-index: 30;
+      line-height: 1.5;
+    }
+    #alert-box h3 { color: #fca5a5; margin-bottom: 8px; font-size: 17px; }
+    #alert-box p { font-size: 14px; color: #e5e7eb; margin-bottom: 14px; }
+    #btn-retry { background: #ef4444; color: #fff; width: 100%; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.175.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.175.0/examples/jsm/",
+        "mindar-face-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-three.prod.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="ar-container"></div>
+
+  <div id="hud">
+    <div class="top-bar">
+      <div class="badge" id="status-text">Memuat filter...</div>
+      <div class="badge" id="filter-name">Filter: -</div>
+    </div>
+
+    <div class="controls">
+      <button id="btn-switch" type="button">Ganti Filter</button>
+      <button id="btn-photo" type="button">Ambil Foto</button>
+    </div>
+  </div>
+
+  <div id="alert-box">
+    <h3>Kamera Tidak Dapat Diakses</h3>
+    <p id="alert-message">
+      Izin kamera ditolak atau tidak tersedia. Aktifkan izin kamera pada pengaturan browser lalu muat ulang halaman (pastikan dibuka lewat HTTPS).
+    </p>
+    <button id="btn-retry" type="button">Coba Lagi</button>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { MindARThree } from 'mindar-face-three';
+
+    const statusEl = document.getElementById('status-text');
+    const filterNameEl = document.getElementById('filter-name');
+    const alertBox = document.getElementById('alert-box');
+    const alertMessage = document.getElementById('alert-message');
+    const btnSwitch = document.getElementById('btn-switch');
+    const btnPhoto = document.getElementById('btn-photo');
+    const btnRetry = document.getElementById('btn-retry');
+
+    let filters = [];
+    let currentIndex = 0;
+    let activeModel = null;
+    let activeMixer = null;
+    let currentAnchor = null;
+    let mindarThree = null;
+    const loader = new GLTFLoader();
+    const clock = new THREE.Clock();
+
+    function showCameraError(msg) {
+      statusEl.textContent = 'Kamera diblokir';
+      alertMessage.textContent = msg;
+      alertBox.style.display = 'block';
+    }
+
+    async function loadFilter(index) {
+      if (!filters.length || !mindarThree) return;
+      currentIndex = (index + filters.length) % filters.length;
+      const item = filters[currentIndex];
+
+      if (currentAnchor && activeModel) {
+        currentAnchor.group.remove(activeModel);
+      }
+      activeModel = null;
+      activeMixer = null;
+
+      currentAnchor = mindarThree.addAnchor(item.anchorIndex ?? 10);
+      filterNameEl.textContent = `Filter: ${item.name}`;
+      statusEl.textContent = 'Memuat model 3D...';
+
+      try {
+        const gltf = await loader.loadAsync(item.modelUrl);
+        const model = gltf.scene;
+        model.position.set(...(item.position || [0, 0, 0]));
+        model.rotation.set(...(item.rotation || [0, 0, 0]));
+        model.scale.set(...(item.scale || [0.4, 0.4, 0.4]));
+        model.userData.idleSpin = Boolean(item.idleSpin);
+
+        if (gltf.animations && gltf.animations.length > 0) {
+          activeMixer = new THREE.AnimationMixer(model);
+          const action = activeMixer.clipAction(gltf.animations[0]);
+          action.play();
+        }
+
+        currentAnchor.group.add(model);
+        activeModel = model;
+        statusEl.textContent = 'Arahkan wajah ke kamera';
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = 'Gagal memuat model .glb';
+      }
+    }
+
+    async function initAR() {
+      alertBox.style.display = 'none';
+      statusEl.textContent = 'Menyiapkan kamera...';
+
+      try {
+        const res = await fetch('./filters.json');
+        filters = await res.json();
+
+        mindarThree = new MindARThree({
+          container: document.querySelector('#ar-container')
+        });
+
+        const { renderer, scene, camera } = mindarThree;
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        dirLight.position.set(0, 2, 3);
+        scene.add(ambientLight, dirLight);
+
+        await loadFilter(0);
+        await mindarThree.start();
+
+        statusEl.textContent = 'Kamera aktif';
+
+        renderer.setAnimationLoop(() => {
+          const delta = clock.getDelta();
+          if (activeMixer) activeMixer.update(delta);
+
+          if (activeModel && activeModel.userData.idleSpin) {
+            activeModel.rotation.y += delta * 1.1;
+          }
+
+          renderer.render(scene, camera);
+        });
+      } catch (err) {
+        console.error(err);
+        if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+          showCameraError(
+            'Izin kamera ditolak oleh pengguna. Buka pengaturan situs di browser, izinkan akses kamera, lalu tekan "Coba Lagi".'
+          );
+        } else if (!window.isSecureContext) {
+          showCameraError(
+            'Akses kamera membutuhkan koneksi HTTPS yang aman. Pastikan halaman dibuka melalui tautan HTTPS (seperti GitHub Pages).'
+          );
+        } else {
+          showCameraError(
+            'Tidak dapat memulai kamera atau AR. Pastikan perangkat memiliki kamera depan dan tidak sedang dipakai aplikasi lain.'
+          );
+        }
+      }
+    }
+
+    btnSwitch.addEventListener('click', () => {
+      loadFilter(currentIndex + 1);
+    });
+
+    btnPhoto.addEventListener('click', () => {
+      if (!mindarThree) return;
+      const video = document.querySelector('#ar-container video');
+      const glCanvas = mindarThree.renderer.domElement;
+      if (!video || !glCanvas) return;
+
+      const width = glCanvas.width || video.videoWidth || 720;
+      const height = glCanvas.height || video.videoHeight || 1280;
+
+      const outCanvas = document.createElement('canvas');
+      outCanvas.width = width;
+      outCanvas.height = height;
+      const ctx = outCanvas.getContext('2d');
+
+      ctx.drawImage(video, 0, 0, width, height);
+      ctx.drawImage(glCanvas, 0, 0, width, height);
+
+      outCanvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `filter-wisuda-kampus-${Date.now()}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 3000);
+        statusEl.textContent = 'Foto tersimpan di perangkat';
+      }, 'image/png');
+    });
+
+    btnRetry.addEventListener('click', () => {
+      window.location.reload();
+    });
+
+    initAR();
+  </script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+[
+  {
+    "id": "toga-wisuda",
+    "name": "Topi Toga Kampus",
+    "modelUrl": "./assets/graduation_cap_pro.glb",
+    "anchorIndex": 10,
+    "position": [0, 0.35, 0],
+    "rotation": [0, 0, 0],
+    "scale": [0.45, 0.45, 0.45],
+    "idleSpin": true
+  },
+  {
+    "id": "kacamata-kampus",
+    "name": "Kacamata Kampus",
+    "modelUrl": "./assets/glasses.glb",
+    "anchorIndex": 168,
+    "position": [0, 0.02, 0.05],
+    "rotation": [0, 0, 0],
+    "scale": [0.35, 0.35, 0.35],
+    "idleSpin": false
+  }
+]
